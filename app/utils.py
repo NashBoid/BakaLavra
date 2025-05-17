@@ -17,7 +17,6 @@ PLUGIN_TYPES = {
     'сатурация': 'effect'
 }
 
-# Инициализация компонентов Natasha
 segmenter = Segmenter()
 morph_vocab = MorphVocab()
 morph = MorphAnalyzer()
@@ -30,7 +29,7 @@ async def load_valid_tags():
 
 def lemmatize(text):
     doc = Doc(text)
-    doc.segment(segmenter)  # Разбиваем на токены
+    doc.segment(segmenter)
 
     lemmas = []
     for token in doc.tokens:
@@ -57,3 +56,7 @@ def extract_keywords(text):
             tags.add(lemma)
 
     return plugin_type, list(tags)
+
+def is_owner(user_id):
+    from config import OWNER_ID
+    return user_id == OWNER_ID

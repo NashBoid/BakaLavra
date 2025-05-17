@@ -4,7 +4,6 @@ DB_NAME = 'vst_database.db'
 
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
-        # Таблицы
         await db.execute('''
             CREATE TABLE IF NOT EXISTS types (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,9 +46,44 @@ async def init_db():
 
 async def get_all_tags():
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT name FROM tags") as cursor:
-            rows = await cursor.fetchall()
-            return {row[0] for row in rows}
+        async with db.execute("SELECT id, name FROM tags") as cursor:
+            return await cursor.fetchall()
+
+async def get_all_types():
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT id, name FROM types") as cursor:
+            return await cursor.fetchall()
+
+async def add_type(name):
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("INSERT OR IGNORE INTO types (name) VALUES (?)", (name,))
+        await db.commit()
+        return cursor.lastrowid
+
+async def add_tag(name):
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
+        await db.commit()
+        return cursor.lastrowid
+
+async def add_plugin(title, description, link, type_id, tag_ids):
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            "INSERT INTO plugins (title, description, download_link) VALUES (?, ?, ?)",
+            (title, description, link)
+        )
+        plugin_id = cursor.lastrowid
+        await db.execute(
+            "INSERT INTO plugin_types (plugin_id, type_id) VALUES (?, ?)",
+            (plugin_id, type_id)
+        )
+        for tag_id in tag_ids:
+            await db.execute(
+                "INSERT INTO plugin_tags (plugin_id, tag_id) VALUES (?, ?)",
+                (plugin_id, tag_id)
+            )
+        await db.commit()
+        return plugin_id
 
 async def get_plugins_by_tags_and_type(plugin_type, tags):
     async with aiosqlite.connect(DB_NAME) as db:
@@ -81,3 +115,14 @@ async def get_plugins_by_tags_and_type(plugin_type, tags):
 
         async with db.execute(query, args) as cursor:
             return await cursor.fetchall()
+
+async def get_all_plugins(limit=5, offset=0):
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT id, title FROM plugins LIMIT ? OFFSET ?", (limit, offset)) as cursor:
+            return await cursor.fetchall()
+
+async def get_total_plugin_count():
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT COUNT(*) FROM plugins") as cursor:
+            row = await cursor.fetchone()
+            return row[0]
