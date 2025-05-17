@@ -1,31 +1,10 @@
 from natasha import Doc, Segmenter, MorphVocab
 from pymorphy2 import MorphAnalyzer
-from app.db import get_all_tags
-
-# Переменная для хранения тегов
-VALID_TAGS = set()
-
-PLUGIN_TYPES = {
-    'инструмент': 'instrument',
-    'синтезатор': 'instrument',
-    'семплер': 'instrument',
-    'ромплер': 'instrument',
-    'эффект': 'effect',
-    'компрессор': 'effect',
-    'ревербератор': 'effect',
-    'эквализатор': 'effect',
-    'сатурация': 'effect'
-}
+from app.db import get_all_tags, get_all_types
 
 segmenter = Segmenter()
 morph_vocab = MorphVocab()
 morph = MorphAnalyzer()
-
-async def load_valid_tags():
-    """Загружает теги из БД при старте бота"""
-    global VALID_TAGS
-    VALID_TAGS = await get_all_tags()
-    print(f"[INFO] Загружено тегов из БД: {len(VALID_TAGS)}")
 
 def lemmatize(text):
     doc = Doc(text)
@@ -42,18 +21,31 @@ def lemmatize(text):
         if lemma not in ['.', ',', '!', '?', '—', '-', '(', ')']:
             lemmas.append(lemma)
 
+    print("Я из лемматизации! - ", lemmas)
+
     return lemmas
 
-def extract_keywords(text):
+async def extract_keywords(text):
     lemmas = lemmatize(text.lower())
     plugin_type = None
     tags = set()
 
+    # Получаем все типы и теги из БД
+    all_types = await get_all_types()
+    all_tags = await get_all_tags()
+
+    # Создаём словарь {лемма_типа: имя_типа}
+    type_names = {t[1].lower(): t[1] for t in all_types}
+    # Создаём множество тегов
+    tag_names = {t[1].lower() for t in all_tags}
+
     for lemma in lemmas:
-        if lemma in PLUGIN_TYPES:
-            plugin_type = PLUGIN_TYPES[lemma]
-        if lemma in VALID_TAGS:
+        if lemma in type_names:
+            plugin_type = type_names[lemma]
+        if lemma in tag_names:
             tags.add(lemma)
+
+    print("Я из экстракт вордз! - ", plugin_type, tags)
 
     return plugin_type, list(tags)
 

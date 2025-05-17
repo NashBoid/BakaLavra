@@ -53,7 +53,9 @@ async def search_plugins_handler(message: Message, state: FSMContext):
 @router.message(SearchPluginState.waiting_for_query)
 async def process_search_query(message: Message, state: FSMContext):
     query = message.text
-    plugin_type, tags = extract_keywords(query)
+    plugin_type, tags = await extract_keywords(query)
+
+    print("Я из рутера поиска плагинов! - ", plugin_type, tags)
 
     results = await get_plugins_by_tags_and_type(plugin_type, tags)
 
@@ -235,6 +237,7 @@ async def list_types(message: Message):
 
 @router.message(Command('list_tags'))
 async def list_tags(message: Message):
+
     tags = await get_all_tags()
     text = "📌 Доступные теги:\n\n" + "\n".join([f"{t[0]}. {t[1]}" for t in tags])
     await message.answer(text, reply_markup=kb.admin_menu)
@@ -263,34 +266,55 @@ async def cmd_show_plugins(message: Message, state: FSMContext):
     if not is_owner(message.from_user.id):
         await message.answer("❌ У вас нет прав для просмотра плагинов.", reply_markup=kb.admin_menu)
         return
-
     total_plugins = await get_total_plugin_count()
     if total_plugins == 0:
         await message.answer("⚠️ База плагинов пуста.", reply_markup=kb.admin_menu)
         return
 
-    # Сохраняем общее количество плагинов
     await state.update_data(page=0, total_plugins=total_plugins)
+    plugins = await get_all_plugins(limit=1, offset=0)
 
-    plugins = await get_all_plugins(limit=5, offset=0)
-    text = "📁 Список плагинов:\n\n" + "\n".join([f"{p[0]}. {p[1]}" for p in plugins])
+    if not plugins:
+        await message.answer("⚠️ Не удалось загрузить плагины.", reply_markup=kb.admin_menu)
+        return
 
-    total_pages = (total_plugins + 4) // 5
+    plugin = plugins[0]
+    text = (
+        f"📌 <b>{plugin['title']}</b>\n"
+        f"🧩 Тип: {plugin['type']}\n"
+        f"🔖 Теги: {', '.join(plugin['tags']) if plugin['tags'] else 'нет'}\n"
+        f"ℹ️ Описание: {plugin['description']}\n"
+        f"🔗 Ссылка: {plugin['download_link']}"
+    )
+
+    total_pages = total_plugins
     keyboard = get_pagination_keyboard(current_page=0, total_pages=total_pages)
-    await message.answer(text, reply_markup=keyboard)
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(ViewPluginsState.viewing)
 
 @router.callback_query(ViewPluginsState.viewing)
 async def navigate_plugins(callback_query: CallbackQuery, state: FSMContext):
-    if callback_query.data.startswith("page_"):
-        current_page = int(callback_query.data.split("_")[1])
-        data = await state.get_data()
-        total_plugins = data["total_plugins"]
+    data = callback_query.data
+    if not data.startswith("page_"):
+        return
 
-        plugins = await get_all_plugins(limit=5, offset=current_page * 5)
-        text = "📁 Список плагинов:\n\n" + "\n".join([f"{p[0]}. {p[1]}" for p in plugins])
+    current_page = int(data.split("_")[1])
+    state_data = await state.get_data()
+    total_plugins = state_data["total_plugins"]
 
-        total_pages = (total_plugins + 4) // 5
-        keyboard = get_pagination_keyboard(current_page, total_pages)
-        await callback_query.message.edit_text(text, reply_markup=keyboard)
-        await state.update_data(page=current_page)
+    plugins = await get_all_plugins(limit=1, offset=current_page * 1)
+    if not plugins:
+        return
+
+    plugin = plugins[0]
+    text = (
+        f"📌 <b>{plugin['title']}</b>\n"
+        f"🧩 Тип: {plugin['type']}\n"
+        f"🔖 Теги: {', '.join(plugin['tags']) if plugin['tags'] else 'нет'}\n"
+        f"ℹ️ Описание: {plugin['description']}\n"
+        f"🔗 Ссылка: {plugin['download_link']}"
+    )
+    keyboard = get_pagination_keyboard(current_page, total_plugins)
+
+    await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(page=current_page)

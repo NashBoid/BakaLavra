@@ -54,6 +54,38 @@ async def get_all_types():
         async with db.execute("SELECT id, name FROM types") as cursor:
             return await cursor.fetchall()
 
+async def get_all_plugins(limit=5, offset=0):
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("""
+            SELECT p.id, p.title, p.description, p.download_link, t.name 
+            FROM plugins p
+            JOIN plugin_types pt ON p.id = pt.plugin_id
+            JOIN types t ON pt.type_id = t.id
+            LIMIT ? OFFSET ?
+        """, (limit, offset)) as cursor:
+            plugins_data = await cursor.fetchall()
+
+        result = []
+        for plugin in plugins_data:
+            plugin_id = plugin[0]
+            # Получаем теги для каждого плагина
+            tags_cursor = await db.execute("""
+                SELECT t.name FROM tags t
+                JOIN plugin_tags pt ON t.id = pt.tag_id
+                WHERE pt.plugin_id = ?
+            """, (plugin_id,))
+            tags = [row[0] for row in await tags_cursor.fetchall()]
+            result.append({
+                "id": plugin[0],
+                "title": plugin[1],
+                "description": plugin[2],
+                "download_link": plugin[3],
+                "type": plugin[4],
+                "tags": tags
+            })
+
+        return result
+
 async def add_type(name):
     async with aiosqlite.connect(DB_NAME) as db:
         cursor = await db.execute("INSERT OR IGNORE INTO types (name) VALUES (?)", (name,))
@@ -87,38 +119,46 @@ async def add_plugin(title, description, link, type_id, tag_ids):
 
 async def get_plugins_by_tags_and_type(plugin_type, tags):
     async with aiosqlite.connect(DB_NAME) as db:
+        # Подготавливаем условия для WHERE
         conditions = []
         args = []
 
         if plugin_type:
-            conditions.append(f"t.name = ?")
+            conditions.append("t.name = ?")
             args.append(plugin_type)
 
         if tags:
-            conditions.append(f"ta.name IN ({','.join(['?'] * len(tags))})")
+            conditions.append("ta.name IN ({})".format(','.join(['?'] * len(tags))))
             args.extend(tags)
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
+        # Основной запрос
         query = f"""
-        SELECT DISTINCT p.title, p.description, p.download_link
-        FROM plugins p
-        JOIN plugin_types pt ON p.id = pt.plugin_id
-        JOIN types t ON pt.type_id = t.id
-        JOIN plugin_tags pta ON p.id = pta.plugin_id
-        JOIN tags ta ON pta.tag_id = ta.id
-        WHERE {where_clause}
-        GROUP BY p.id
-        HAVING COUNT(DISTINCT ta.name) = ?
+            SELECT DISTINCT p.title, p.description, p.download_link
+            FROM plugins p
+            JOIN plugin_types pt ON p.id = pt.plugin_id
+            JOIN types t ON pt.type_id = t.id
         """
-        args.append(len(tags) if tags else 0)
+
+        if tags:
+            query += """
+                JOIN plugin_tags pta ON p.id = pta.plugin_id
+                JOIN tags ta ON pta.tag_id = ta.id
+            """
+
+        query += f"""
+            WHERE {where_clause}
+        """
+
+        if tags:
+            query += """
+                GROUP BY p.id
+                HAVING COUNT(DISTINCT ta.name) = ?
+            """
+            args.append(len(tags))
 
         async with db.execute(query, args) as cursor:
-            return await cursor.fetchall()
-
-async def get_all_plugins(limit=5, offset=0):
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT id, title FROM plugins LIMIT ? OFFSET ?", (limit, offset)) as cursor:
             return await cursor.fetchall()
 
 async def get_total_plugin_count():
